@@ -1,10 +1,16 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Injectable, OnApplicationBootstrap } from "@nestjs/common";
-import { DiscoveryService, MetadataScanner } from "@nestjs/core";
-import { MCP_TOOL_METADATA_KEY, ToolMetadata } from "../decorators";
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, Progress } from "@modelcontextprotocol/sdk/types";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  ListToolsRequestSchema,
+  McpError,
+  Progress,
+} from '@modelcontextprotocol/sdk/types';
+import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
+import { DiscoveryService, MetadataScanner } from '@nestjs/core';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { MCP_TOOL_METADATA_KEY, ToolMetadata } from '../decorators';
 
 export type Context = {
   reportProgress: (progress: Progress) => Promise<void>;
@@ -18,19 +24,16 @@ export type Context = {
 
 type Literal = boolean | null | number | string | undefined;
 
-type SerializableValue =
-  | Literal
-  | SerializableValue[]
-  | { [key: string]: SerializableValue };
+type SerializableValue = Literal | SerializableValue[] | { [key: string]: SerializableValue };
 
 type TextContent = {
-  type: "text";
+  type: 'text';
   text: string;
 };
 
 const TextContentZodSchema = z
   .object({
-    type: z.literal("text"),
+    type: z.literal('text'),
     /**
      * The text content of the message.
      */
@@ -39,9 +42,7 @@ const TextContentZodSchema = z
   .strict() satisfies z.ZodType<TextContent>;
 type Content = TextContent;
 
-const ContentZodSchema = z.discriminatedUnion("type", [
-  TextContentZodSchema,
-]) satisfies z.ZodType<Content>;
+const ContentZodSchema = z.discriminatedUnion('type', [TextContentZodSchema]) satisfies z.ZodType<Content>;
 
 type ContentResult = {
   content: Content[];
@@ -82,20 +83,23 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
   collectTools() {
     const providers = this.discovery.getProviders();
     const controllers = this.discovery.getControllers();
-    const allInstances = [...providers, ...controllers]
-      .filter((wrapper) => wrapper.instance)
-      .map((wrapper) => wrapper.instance);
-
-    allInstances.forEach((instance) => {
-      if (!instance || typeof instance !== 'object') {
-        return;
+    const allInstances = [...providers, ...controllers].reduce((accumulator, wrapper) => {
+      if (wrapper.instance) {
+        accumulator.push(wrapper.instance);
       }
-      this.metadataScanner.getAllMethodNames(instance).forEach((methodName) => {
+      return accumulator;
+    }, [] as any[]);
+
+    for (const instance of allInstances) {
+      if (!instance || typeof instance !== 'object') {
+        continue;
+      }
+      for (const methodName of this.metadataScanner.getAllMethodNames(instance)) {
         const methodRef = instance[methodName];
         const methodMetaKeys = Reflect.getOwnMetadataKeys(methodRef);
 
         if (!methodMetaKeys.includes(MCP_TOOL_METADATA_KEY)) {
-          return;
+          continue;
         }
 
         const metadata: ToolMetadata = Reflect.getMetadata(MCP_TOOL_METADATA_KEY, methodRef);
@@ -105,22 +109,20 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
           instance,
           methodName,
         });
-      });
-    });
+      }
+    }
   }
 
   registerTools(mcpServer: McpServer) {
     // Register list tools handler
     mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => {
       let tools = this.tools.map((tool) => ({
-          name: tool.metadata.name,
-          description: tool.metadata.description,
-          inputSchema: tool.metadata.parameters
-            ? zodToJsonSchema(tool.metadata.parameters)
-            : undefined,
-        }))
+        name: tool.metadata.name,
+        description: tool.metadata.description,
+        inputSchema: tool.metadata.parameters ? zodToJsonSchema(tool.metadata.parameters) : undefined,
+      }));
       return {
-        tools
+        tools,
       };
     });
 
@@ -129,10 +131,7 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
       const tool = this.tools.find((tool) => tool.metadata.name === request.params.name);
 
       if (!tool) {
-        throw new McpError(
-          ErrorCode.MethodNotFound,
-          `Unknown tool: ${request.params.name}`
-        );
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
       }
 
       const schema = tool.metadata.parameters;
@@ -143,7 +142,7 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
         if (!result.success) {
           throw new McpError(
             ErrorCode.InvalidParams,
-            `Invalid ${request.params.name} parameters: ${JSON.stringify(result.error.format())}`
+            `Invalid ${request.params.name} parameters: ${JSON.stringify(result.error.format())}`,
           );
         }
         parsedParams = result.data;
@@ -153,18 +152,14 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
 
       try {
         const context = this.createContext(mcpServer, progressToken!);
-        const result = await tool.instance[tool.methodName].call(
-          tool.instance,
-          parsedParams,
-          context
-        );
+        const result = await tool.instance[tool.methodName].call(tool.instance, parsedParams, context);
 
         // Handle different result types
-        if (typeof result === "string") {
+        if (typeof result === 'string') {
           return ContentResultZodSchema.parse({
-            content: [{ type: "text", text: result }],
+            content: [{ type: 'text', text: result }],
           });
-        } else if (result && typeof result === "object" && "type" in result) {
+        } else if (result && typeof result === 'object' && 'type' in result) {
           return ContentResultZodSchema.parse({
             content: [result],
           });
@@ -174,25 +169,25 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
       } catch (error) {
         if (error instanceof UserError) {
           return {
-            content: [{ type: "text", text: error.message }],
+            content: [{ type: 'text', text: error.message }],
             isError: true,
           };
         }
         return {
-          content: [{ type: "text", text: `Error: ${error}` }],
+          content: [{ type: 'text', text: `Error: ${error}` }],
           isError: true,
         };
       }
     });
   }
 
-  private createContext(mcpServer: McpServer, progressToken?: string | number) : Context {
+  private createContext(mcpServer: McpServer, progressToken?: string | number): Context {
     return {
       reportProgress: async (progress: Progress) => {
         if (progressToken) {
-          console.log("Reporting progress", progress);
+          console.log('Reporting progress', progress);
           await mcpServer.server.notification({
-            method: "notifications/progress",
+            method: 'notifications/progress',
             params: {
               ...progress,
               progressToken,
@@ -203,25 +198,25 @@ export class McpToolsDiscovery implements OnApplicationBootstrap {
       log: {
         debug: (message: string, context?: SerializableValue) => {
           mcpServer.server.sendLoggingMessage({
-            level: "debug",
+            level: 'debug',
             data: { message, context },
           });
         },
         error: (message: string, context?: SerializableValue) => {
           mcpServer.server.sendLoggingMessage({
-            level: "error",
+            level: 'error',
             data: { message, context },
           });
         },
         info: (message: string, context?: SerializableValue) => {
           mcpServer.server.sendLoggingMessage({
-            level: "info",
+            level: 'info',
             data: { message, context },
           });
         },
         warn: (message: string, context?: SerializableValue) => {
           mcpServer.server.sendLoggingMessage({
-            level: "warning",
+            level: 'warning',
             data: { message, context },
           });
         },

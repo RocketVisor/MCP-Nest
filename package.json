@@ -14,8 +14,9 @@
     "@modelcontextprotocol/sdk": ">=1.4.1",
     "@nestjs/common": ">=9.0.0",
     "@nestjs/core": ">=9.0.0",
-    "express": ">=4.0.0",
-    "reflect-metadata": ">=0.1.14"
+    "reflect-metadata": ">=0.1.14",
+    "zod": ">=3.24.2",
+    "zod-to-json-schema": ">=3.24.3"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.4.1",
